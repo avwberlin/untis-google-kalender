@@ -1,0 +1,16 @@
+# Zugangsdaten – dürfen NIEMALS ins Repository
+.env
+*.json
+!package.json
+service-account*.json
+credentials*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Sonstiges
+.DS_Store
+explore_output/

@@ -1,0 +1,5 @@
+requests>=2.32
+python-dotenv>=1.0
+webuntis>=0.1.25
+google-api-python-client>=2.100
+google-auth>=2.30

@@ -1,0 +1,41 @@
+name: Stundenplan-Sync
+
+on:
+  schedule:
+    # Alle 15 Minuten, werktags 4-16 Uhr UTC.
+    # Das deckt ganzjaehrig ca. 6-17 Uhr Berliner Zeit ab (Sommer- und Winterzeit).
+    - cron: "*/15 4-16 * * 1-5"
+  workflow_dispatch:        # erlaubt das manuelle Ausloesen ueber die GitHub-Oberflaeche
+
+# Ueberlappende Laeufe nicht gegenseitig abbrechen, sondern nacheinander abarbeiten
+concurrency:
+  group: stundenplan-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Quellcode holen
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Abhaengigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: Sync ausfuehren
+        env:
+          UNTIS_SERVER: ${{ secrets.UNTIS_SERVER }}
+          UNTIS_SCHOOL: ${{ secrets.UNTIS_SCHOOL }}
+          UNTIS_USER: ${{ secrets.UNTIS_USER }}
+          UNTIS_PASSWORD: ${{ secrets.UNTIS_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GCAL_ID: ${{ secrets.GCAL_ID }}
+        run: python sync.py

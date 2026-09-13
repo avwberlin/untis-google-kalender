@@ -1,0 +1,29 @@
+name: Keepalive
+
+# GitHub schaltet geplante Workflows nach 60 Tagen ohne Repo-Aktivitaet
+# automatisch ab. Dieser Workflow erzeugt einmal pro Woche eine Aktivitaet,
+# damit der Stundenplan-Sync nicht stillschweigend stehenbleibt.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"    # montags 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Quellcode holen
+        uses: actions/checkout@v4
+
+      - name: Zeitstempel aktualisieren und committen
+        run: |
+          date -u +"Letzter Keepalive-Lauf: %Y-%m-%d %H:%M UTC" > .keepalive
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .keepalive
+          git commit -m "Keepalive: geplante Workflows aktiv halten" || exit 0
+          git push
