@@ -1,21 +1,29 @@
 name: Stundenplan-Sync
 
+# Warum eine Schleife statt vieler Einzelstarts?
+# GitHub drosselt geplante Workflows stark: von 52 angeforderten Starts pro Tag
+# wurden tatsaechlich nur etwa 3 ausgefuehrt. Deshalb startet ein Lauf nicht mehr
+# einen einzelnen Sync, sondern haelt sich stundenlang am Leben und synct intern
+# alle zwei Minuten. Ein einziger tatsaechlich gestarteter Lauf deckt damit einen
+# ganzen Schultag ab.
+
 on:
   schedule:
-    # Alle 15 Minuten, werktags 4-16 Uhr UTC.
-    # Das deckt ganzjaehrig ca. 6-17 Uhr Berliner Zeit ab (Sommer- und Winterzeit).
+    # Weiterhin oft angefordert – jeder Start, den GitHub tatsaechlich zulaesst,
+    # startet die Schleife neu und deckt danach viele Stunden ab.
     - cron: "*/15 4-16 * * 1-5"
-  workflow_dispatch:        # erlaubt das manuelle Ausloesen ueber die GitHub-Oberflaeche
+  workflow_dispatch:
 
-# Ueberlappende Laeufe nicht gegenseitig abbrechen, sondern nacheinander abarbeiten
+# Ein neuer Start loest die alte Schleife ab, statt sich dahinter aufzustauen.
+# Ein Abbruch mitten im Sync ist unkritisch, weil jeder Lauf idempotent ist.
 concurrency:
   group: stundenplan-sync
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 350        # GitHub erlaubt hoechstens 360 Minuten je Job
 
     steps:
       - name: Quellcode holen
@@ -30,7 +38,7 @@ jobs:
       - name: Abhaengigkeiten installieren
         run: pip install -r requirements.txt
 
-      - name: Sync ausfuehren
+      - name: Sync-Schleife
         env:
           UNTIS_SERVER: ${{ secrets.UNTIS_SERVER }}
           UNTIS_SCHOOL: ${{ secrets.UNTIS_SCHOOL }}
@@ -38,4 +46,47 @@ jobs:
           UNTIS_PASSWORD: ${{ secrets.UNTIS_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GCAL_ID: ${{ secrets.GCAL_ID }}
-        run: python sync.py
+          # Abstand zwischen zwei Syncs, in Sekunden
+          TAKT: "120"
+          # Nach dieser UTC-Stunde wird nicht mehr gesynct (17 UTC = 19 Uhr Berlin
+          # im Sommer, 18 Uhr im Winter)
+          FEIERABEND_UTC: "17"
+          # Spaetestens nach dieser Laufzeit beenden, damit der Job sauber endet
+          MAX_LAUFZEIT: "19800"    # 5 Stunden 30 Minuten
+        run: |
+          set -u
+          start=$(date +%s)
+          durchlauf=0
+          fehler_in_folge=0
+
+          while true; do
+            durchlauf=$((durchlauf + 1))
+            echo "::group::Durchlauf $durchlauf ($(date -u +%H:%M:%S) UTC)"
+
+            if python sync.py; then
+              fehler_in_folge=0
+            else
+              fehler_in_folge=$((fehler_in_folge + 1))
+              echo "Sync fehlgeschlagen ($fehler_in_folge in Folge)."
+              if [ "$fehler_in_folge" -ge 3 ]; then
+                echo "::error::Dreimal hintereinander fehlgeschlagen – Lauf wird als Fehler beendet."
+                echo "::endgroup::"
+                exit 1
+              fi
+            fi
+            echo "::endgroup::"
+
+            stunde=$(date -u +%H)
+            stunde=${stunde#0}
+            if [ "${stunde:-0}" -ge "$FEIERABEND_UTC" ]; then
+              echo "Schultag vorbei ($stunde Uhr UTC) – Schleife beendet nach $durchlauf Durchläufen."
+              break
+            fi
+
+            if [ $(( $(date +%s) - start )) -ge "$MAX_LAUFZEIT" ]; then
+              echo "Maximale Laufzeit erreicht – Schleife beendet nach $durchlauf Durchläufen."
+              break
+            fi
+
+            sleep "$TAKT"
+          done

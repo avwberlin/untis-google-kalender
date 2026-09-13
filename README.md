@@ -91,29 +91,43 @@ Termine im Kalender `Schule` bleiben unberührt.
 
 ## Takt ändern
 
-Der Zeitplan steht in [.github/workflows/sync.yml](.github/workflows/sync.yml):
+Der Sync läuft **alle 2 Minuten**. Das steckt nicht im Cron-Zeitplan, sondern in einer
+Schleife innerhalb des Workflows – siehe [.github/workflows/sync.yml](.github/workflows/sync.yml):
 
 ```yaml
-    - cron: "*/15 4-16 * * 1-5"
+          TAKT: "120"            # Sekunden zwischen zwei Syncs
+          FEIERABEND_UTC: "17"   # ab dieser UTC-Stunde wird nicht mehr gesynct
+          MAX_LAUFZEIT: "19800"  # Schleife endet spätestens nach 5 h 30 min
 ```
 
-Bedeutung: alle 15 Minuten, werktags, zwischen 4 und 16 Uhr **UTC** — das entspricht
-ganzjährig etwa 6 bis 17 Uhr Berliner Zeit, in Sommer- wie Winterzeit.
+Langsamer: `TAKT` erhöhen, z. B. `"300"` für alle 5 Minuten.
 
-Auf 30 Minuten halbieren: `*/30` statt `*/15` eintragen.
+### Warum eine Schleife und kein häufigerer Cron?
 
-### Hinweis zu den Actions-Minuten
+GitHub drosselt geplante Workflows massiv. Gemessen: Von 52 angeforderten Starts pro Tag
+(`*/15`) wurden tatsächlich nur etwa **3** ausgeführt. Der Cron-Eintrag bleibt deshalb
+bewusst häufig stehen – aber jeder Start, den GitHub tatsächlich zulässt, startet nun eine
+Schleife, die den restlichen Schultag abdeckt.
 
-Der kostenlose GitHub-Plan enthält **2.000 Actions-Minuten pro Monat** für private
-Repositories. Ein Lauf dauert gemessen etwa 20 Sekunden, GitHub rechnet aber immer
-volle Minuten ab. Bei rund 52 Läufen an jedem Werktag sind das etwa
-**1.100 bis 1.200 Minuten** im Monat. Das passt, ist aber nicht üppig. Wenn es eng wird, gibt es zwei Möglichkeiten:
+`cancel-in-progress: true` sorgt dafür, dass ein neuer Start die alte Schleife ablöst,
+statt sich dahinter aufzustauen. Ein Abbruch mitten im Sync ist unkritisch, weil jeder
+Lauf idempotent ist.
 
-1. **Takt halbieren** auf 30 Minuten (siehe oben) — halbiert den Verbrauch.
-2. **Repository auf öffentlich stellen** — dann sind die Actions-Minuten unbegrenzt.
-   Die Secrets bleiben auch dann verschlüsselt und für Fremde unsichtbar. Zu bedenken
-   ist nur, dass der Quellcode dann öffentlich lesbar ist; Zugangsdaten stehen dort
-   ohnehin nicht drin.
+### Warum das Repository öffentlich ist
+
+Die Schleife verbraucht etwa 990 Actions-Minuten pro Tag. Für private Repositories wären
+im kostenlosen Plan nur 2.000 Minuten **im Monat** verfügbar – das würde nach zwei Tagen
+reißen. Für öffentliche Repositories sind die Actions-Minuten **unbegrenzt**.
+
+Deshalb ist das Repository öffentlich. Die Zugangsdaten sind davon nicht betroffen: Sie
+liegen als verschlüsselte GitHub-Secrets und sind auch in öffentlichen Repositories für
+Fremde unsichtbar. Schulname und Personennummer wurden vor der Veröffentlichung aus Code
+und Historie entfernt.
+
+Wer es lieber privat hätte: Repository auf privat stellen und in
+[sync.yml](.github/workflows/sync.yml) die Schleife entfernen, also nur noch einen
+einzelnen `python sync.py`-Aufruf stehen lassen. Dann gilt wieder der gedrosselte
+Cron-Takt von etwa dreimal täglich.
 
 ## Keepalive
 
