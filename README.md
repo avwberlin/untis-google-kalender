@@ -102,6 +102,18 @@ Schleife innerhalb des Workflows – siehe [.github/workflows/sync.yml](.github/
 
 Langsamer: `TAKT` erhöhen, z. B. `"300"` für alle 5 Minuten.
 
+### Kurz testen, ohne den Zeitplan anzufassen
+
+Beim manuellen Start (Actions → Stundenplan-Sync → Run workflow) lassen sich Takt,
+Laufzeit und Feierabendstunde einmalig überschreiben. Nützlich, um abends zu prüfen,
+ob die Schleife läuft:
+
+| Feld | Testwert | Bedeutung |
+|---|---|---|
+| `takt` | `30` | alle 30 Sekunden syncen |
+| `max_laufzeit` | `150` | nach 2,5 Minuten aufhören |
+| `feierabend_utc` | `99` | Feierabend-Prüfung abschalten |
+
 ### Warum eine Schleife und kein häufigerer Cron?
 
 GitHub drosselt geplante Workflows massiv. Gemessen: Von 52 angeforderten Starts pro Tag
