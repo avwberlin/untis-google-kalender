@@ -2,6 +2,7 @@
 .env
 *.json
 !package.json
+!appsscript/appsscript.json
 service-account*.json
 credentials*.json
 

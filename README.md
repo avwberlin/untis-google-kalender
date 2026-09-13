@@ -211,6 +211,23 @@ lassen, um zu sehen, was sich geändert hat.
 * **Schuljahresgrenzen** werden beachtet: WebUntis lehnt Abfragen ab, die zwei
   Schuljahre überspannen. Das Fenster wird automatisch zugeschnitten.
 
+## Zweite Fassung: Google Apps Script
+
+Im Ordner [appsscript/](appsscript/) liegt dieselbe Funktion noch einmal als
+Google-Apps-Script. Die läuft auf Googles Servern statt auf GitHub Actions:
+
+* rund um die Uhr verfügbar, kein Rechner nötig
+* Takt bis herunter auf **eine Minute**
+* keine Actions-Minuten, keine Drosselung geplanter Läufe
+* kein Service-Konto nötig — das Skript läuft im eigenen Google-Konto
+
+Beide Fassungen erzeugen **identische Termin-Kennungen und Inhalts-Hashes**
+(nachgerechnet und für alle 75 vorhandenen Termine bestätigt). Man kann daher
+zwischen ihnen wechseln, ohne dass Termine doppelt entstehen — es darf nur immer
+**eine von beiden** aktiv sein.
+
+Einrichtung: [appsscript/ANLEITUNG.md](appsscript/ANLEITUNG.md)
+
 ## Dateien
 
 | Datei | Zweck |
