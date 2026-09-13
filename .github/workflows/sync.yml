@@ -13,6 +13,19 @@ on:
     # startet die Schleife neu und deckt danach viele Stunden ab.
     - cron: "*/15 4-16 * * 1-5"
   workflow_dispatch:
+    inputs:
+      takt:
+        description: "Sekunden zwischen zwei Syncs"
+        required: false
+        default: "120"
+      max_laufzeit:
+        description: "Maximale Laufzeit der Schleife in Sekunden"
+        required: false
+        default: "19800"
+      feierabend_utc:
+        description: "Ab dieser UTC-Stunde nicht mehr syncen (99 = ignorieren, fuer Tests)"
+        required: false
+        default: "17"
 
 # Ein neuer Start loest die alte Schleife ab, statt sich dahinter aufzustauen.
 # Ein Abbruch mitten im Sync ist unkritisch, weil jeder Lauf idempotent ist.
@@ -47,12 +60,12 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GCAL_ID: ${{ secrets.GCAL_ID }}
           # Abstand zwischen zwei Syncs, in Sekunden
-          TAKT: "120"
+          TAKT: ${{ inputs.takt || '120' }}
           # Nach dieser UTC-Stunde wird nicht mehr gesynct (17 UTC = 19 Uhr Berlin
-          # im Sommer, 18 Uhr im Winter)
-          FEIERABEND_UTC: "17"
+          # im Sommer, 18 Uhr im Winter). 99 schaltet die Pruefung ab.
+          FEIERABEND_UTC: ${{ inputs.feierabend_utc || '17' }}
           # Spaetestens nach dieser Laufzeit beenden, damit der Job sauber endet
-          MAX_LAUFZEIT: "19800"    # 5 Stunden 30 Minuten
+          MAX_LAUFZEIT: ${{ inputs.max_laufzeit || '19800' }}   # Standard: 5 h 30 min
         run: |
           set -u
           start=$(date +%s)
