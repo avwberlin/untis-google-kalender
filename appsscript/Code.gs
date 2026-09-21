@@ -31,20 +31,22 @@ var EINSTELLUNGEN = {
   // Minuten ab; der Rest wird beim naechsten Lauf nachgeholt.
   maxSchreibvorgaengeProLauf: 100,
 
-  // Nur waehrend der Schulzeit wirklich synchronisieren. Ausserhalb bricht das
-  // Skript sofort ab und verbraucht praktisch keine Laufzeit. Das schont das
-  // Apps-Script-Kontingent von 90 Minuten Ausfuehrungszeit pro Tag.
-  vonStunde: 6,          // Berliner Zeit
-  bisStunde: 19,
-  nurWerktags: true,
+  // Zeitfenster, in dem ueberhaupt synchronisiert wird. Standard ist rund um
+  // die Uhr an allen Tagen – genau dafuer gibt es diese Fassung. Wer Laufzeit
+  // sparen will, kann hier einschraenken, z. B. vonStunde 6 und bisStunde 19.
+  vonStunde: 0,          // Berliner Zeit
+  bisStunde: 24,
+  nurWerktags: false,
 
   // Mindestabstand zwischen zwei echten Syncs, in Sekunden. Der Ausloeser
   // feuert jede Minute; hierueber laesst sich der Takt gezielt strecken.
-  mindestAbstandSekunden: 60,
+  // Bei 120 Sekunden rund um die Uhr liegt die taegliche Laufzeit bei etwa
+  // 50 der 90 erlaubten Minuten. Auf 60 zu gehen waere zu knapp.
+  mindestAbstandSekunden: 120,
 
   // Abstand des Zeitausloesers in Minuten. Erlaubt sind 1, 5, 10, 15 und 30.
-  // Bei 1 Minute liegt die taegliche Laufzeit bei etwa 60 der 90 erlaubten Minuten.
-  // Falls Google wegen des Kontingents meckert: hier auf 5 stellen.
+  // Der eigentliche Takt wird ueber mindestAbstandSekunden gesteuert; der
+  // Ausloeser darf ruhig jede Minute feuern und sofort wieder aussteigen.
   ausloeserMinuten: 1,
 
   zeitzone: 'Europe/Berlin',
@@ -156,7 +158,7 @@ function ausfuehren(nurVorschau) {
   var beginn = new Date();
 
   if (!nurVorschau && !istSchulzeit(beginn)) {
-    return;   // ausserhalb der Schulzeit: sofort raus, kostet kaum Laufzeit
+    return;   // ausserhalb des Aktivfensters: sofort raus, kostet kaum Laufzeit
   }
   if (!nurVorschau && !abstandEingehalten(beginn)) {
     return;   // Mindestabstand noch nicht erreicht
@@ -336,6 +338,7 @@ function fernLaufFaellig(jetzt, eigenschaften) {
          EINSTELLUNGEN.fernIntervallMinuten * 60 * 1000;
 }
 
+/** Liegt der Zeitpunkt im eingestellten Aktivfenster? */
 function istSchulzeit(jetzt) {
   var stunde = Number(Utilities.formatDate(jetzt, EINSTELLUNGEN.zeitzone, 'H'));
   var wochentag = Utilities.formatDate(jetzt, EINSTELLUNGEN.zeitzone, 'u'); // 1=Mo … 7=So

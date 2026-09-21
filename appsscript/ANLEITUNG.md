@@ -122,10 +122,10 @@ Ganz oben in `Code.gs` steht der Block `EINSTELLUNGEN`:
   nahTage: 14,                     // dieses Fenster bei JEDEM Lauf prüfen
   fernIntervallMinuten: 30,        // ganzes Fenster nur alle 30 Minuten prüfen
   maxSchreibvorgaengeProLauf: 100, // Rest kommt beim nächsten Lauf
-  vonStunde: 6,                    // ab 6 Uhr Berliner Zeit
-  bisStunde: 19,                   // bis 19 Uhr
-  nurWerktags: true,               // Samstag und Sonntag aus
-  mindestAbstandSekunden: 60,      // frühestens jede Minute ein echter Sync
+  vonStunde: 0,                    // rund um die Uhr
+  bisStunde: 24,
+  nurWerktags: false,              // auch samstags und sonntags
+  mindestAbstandSekunden: 120,     // alle 2 Minuten ein echter Sync
   ausloeserMinuten: 1,             // Takt des Zeitauslösers
 ```
 
@@ -136,20 +136,29 @@ kurzfristigen Änderungen. Der gesamte Zeitraum bis zum Enddatum wird alle 30 Mi
 geprüft, damit auch eine Änderung im Januar ankommt, ohne das Tageskontingent zu
 sprengen.
 
+### Warum rund um die Uhr?
+
+Genau dafür gibt es diese Fassung. GitHub Actions läuft nur werktags zwischen etwa
+6 und 19 Uhr; trägt ein Lehrer abends um 21 Uhr eine Vertretung für den nächsten
+Morgen ein, sieht man das dort erst am nächsten Tag. Apps Script holt sie sofort.
+
 Nach jeder Änderung **Cmd+S** drücken. Änderst du `ausloeserMinuten`, danach einmal
 `ausloeserEinrichten` erneut ausführen.
 
 ## Das Google-Kontingent
 
 Kostenlose Google-Konten dürfen Skripte insgesamt **90 Minuten pro Tag** über
-Zeitauslöser laufen lassen. Diese Einstellung verbraucht etwa **60 Minuten pro Tag**:
+Zeitauslöser laufen lassen. Die Voreinstellung — rund um die Uhr, alle 2 Minuten —
+verbraucht etwa **50 Minuten pro Tag**:
 
-- Außerhalb der Schulzeit bricht das Skript sofort ab und kostet fast nichts.
-- Während der Schulzeit dauert ein Sync etwa 4 Sekunden.
+- Ein Sync über die nächsten 14 Tage dauert etwa 3 bis 4 Sekunden.
+- Der große Durchgang über den ganzen Zeitraum läuft nur alle 30 Minuten.
+- Auslöser-Aufrufe, bei denen der Mindestabstand noch nicht erreicht ist, steigen
+  sofort wieder aus und kosten fast nichts.
 
-Sollte Google trotzdem eine Kontingentmeldung schicken, in `EINSTELLUNGEN` einfach
-`ausloeserMinuten: 5` setzen und `ausloeserEinrichten` erneut ausführen. Dann sind es
-nur noch etwa 12 Minuten pro Tag.
+Auf jede Minute zu gehen (`mindestAbstandSekunden: 60`) wäre mit rund 90 Minuten
+täglich zu knapp. Sollte Google eine Kontingentmeldung schicken, `mindestAbstandSekunden`
+auf `300` setzen — dann sind es etwa 20 Minuten pro Tag.
 
 ## Wenn etwas nicht klappt
 
