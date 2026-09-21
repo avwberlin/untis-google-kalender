@@ -77,12 +77,13 @@ Dort sind sie nur für dich sichtbar.
 ## Schritt 6: Probelauf
 
 19. Funktion **`probelauf`** auswählen, **„Ausführen"**.
-20. Im Protokoll sollte stehen: `PROBELAUF – 0 angelegt, 0 aktualisiert, 0 geloescht,
-    75 unveraendert`.
+20. Im Protokoll sollte etwas stehen wie: `PROBELAUF – ganzes Fenster bis 2027-03-16:
+    0 angelegt, 0 aktualisiert, 0 geloescht, 412 unveraendert`.
 
-    **Das ist der wichtige Moment:** Wenn dort tatsächlich `0 angelegt` steht, hat das
-    Skript deine vorhandenen Termine korrekt wiedererkannt. Stünde dort `75 angelegt`,
-    würde alles doppelt — dann bitte **nicht** weitermachen und Bescheid sagen.
+    **Das ist der wichtige Moment:** Wenn dort `0 angelegt` steht, hat das Skript deine
+    vorhandenen Termine korrekt wiedererkannt. Stünde dort eine grosse Zahl bei
+    „angelegt", würde alles doppelt — dann bitte **nicht** weitermachen und Bescheid
+    sagen.
 
 ## Schritt 7: Automatik einschalten
 
@@ -117,12 +118,23 @@ Dasselbe für den Keepalive-Workflow (der wird dann auch nicht mehr gebraucht).
 Ganz oben in `Code.gs` steht der Block `EINSTELLUNGEN`:
 
 ```js
+  endDatum: '2027-03-16',          // letzter Tag, der übertragen wird
+  nahTage: 14,                     // dieses Fenster bei JEDEM Lauf prüfen
+  fernIntervallMinuten: 30,        // ganzes Fenster nur alle 30 Minuten prüfen
+  maxSchreibvorgaengeProLauf: 100, // Rest kommt beim nächsten Lauf
   vonStunde: 6,                    // ab 6 Uhr Berliner Zeit
   bisStunde: 19,                   // bis 19 Uhr
   nurWerktags: true,               // Samstag und Sonntag aus
   mindestAbstandSekunden: 60,      // frühestens jede Minute ein echter Sync
   ausloeserMinuten: 1,             // Takt des Zeitauslösers
 ```
+
+### Warum zwei Fenster?
+
+Die nächsten 14 Tage werden bei **jedem** Lauf geprüft — dort passieren die
+kurzfristigen Änderungen. Der gesamte Zeitraum bis zum Enddatum wird alle 30 Minuten
+geprüft, damit auch eine Änderung im Januar ankommt, ohne das Tageskontingent zu
+sprengen.
 
 Nach jeder Änderung **Cmd+S** drücken. Änderst du `ausloeserMinuten`, danach einmal
 `ausloeserEinrichten` erneut ausführen.

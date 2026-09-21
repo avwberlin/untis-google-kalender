@@ -15,8 +15,21 @@
 // ---------------------------------------------------------------------------
 
 var EINSTELLUNGEN = {
-  // Sync-Fenster: heute bis heute plus so viele Tage
-  vorlaufTage: 28,
+  // Letzter Tag, der ueberhaupt in den Kalender kommt (einschliesslich).
+  // Termine dahinter werden nicht angelegt und bereits angelegte entfernt.
+  endDatum: '2027-03-16',
+
+  // Die naechsten so vielen Tage werden bei JEDEM Lauf geprueft. Hier passieren
+  // die kurzfristigen Aenderungen (Ausfall, Vertretung, Raumwechsel).
+  nahTage: 14,
+
+  // Das gesamte Fenster bis zum Enddatum wird nur so oft geprueft. Das haelt
+  // die taegliche Laufzeit klein, erkennt aber auch Aenderungen weit im Voraus.
+  fernIntervallMinuten: 30,
+
+  // Hoechstzahl an Schreibvorgaengen je Lauf. Apps Script bricht nach sechs
+  // Minuten ab; der Rest wird beim naechsten Lauf nachgeholt.
+  maxSchreibvorgaengeProLauf: 100,
 
   // Nur waehrend der Schulzeit wirklich synchronisieren. Ausserhalb bricht das
   // Skript sofort ab und verbraucht praktisch keine Laufzeit. Das schont das
@@ -59,8 +72,10 @@ function probelauf() {
 /** Notausstieg: entfernt alle vom Skript verwalteten Termine im Fenster. */
 function alleEntfernen() {
   var k = konfiguration();
-  var fenster = syncFenster();
-  var vorhanden = holeVerwaltete(k.kalenderId, fenster.start, fenster.ende, false);
+  var start = new Date();
+  var ende = new Date(start.getTime());
+  ende.setDate(ende.getDate() + 500);
+  var vorhanden = holeVerwaltete(k.kalenderId, start, ende, false);
   var anzahl = 0;
   Object.keys(vorhanden).forEach(function (id) {
     if (istUnser(vorhanden[id])) {
@@ -102,10 +117,15 @@ function einrichtungPruefen() {
   var kal = Calendar.Calendars.get(k.kalenderId);
   Logger.log('Kalender: "' + kal.summary + '" (' + kal.timeZone + ')');
 
-  var fenster = syncFenster();
-  var stunden = holeStunden(k, sitzung, fenster.start, fenster.ende);
-  Logger.log('Stundenplan: ' + stunden.length + ' Stunden im Fenster ' +
-             datumIso(fenster.start) + ' bis ' + datumIso(fenster.ende));
+  var fenster = syncFenster(true);
+  if (!fenster) {
+    Logger.log('Achtung: Das Enddatum ' + EINSTELLUNGEN.endDatum +
+               ' liegt bereits in der Vergangenheit – es wird nichts mehr uebertragen.');
+  } else {
+    var stunden = holeStunden(k, sitzung, fenster.start, fenster.ende);
+    Logger.log('Stundenplan: ' + stunden.length + ' Stunden im Fenster ' +
+               datumIso(fenster.start) + ' bis ' + datumIso(fenster.ende));
+  }
 
   // Schreibrecht pruefen: Testtermin anlegen und sofort wieder entfernen.
   var testId = 'untis' + '0123456789abcdef0123456789abcdef01234567';
@@ -148,15 +168,22 @@ function ausfuehren(nurVorschau) {
   }
 
   try {
+    var eigenschaften = PropertiesService.getScriptProperties();
     var k = konfiguration();
-    var fenster = syncFenster();
-    var sitzung = anmelden(k);
-    var stunden = holeStunden(k, sitzung, fenster.start, fenster.ende);
 
-    if (!stunden.length) {
-      Logger.log('Keine Stunden im Fenster – Ferien. Nichts zu tun.');
+    // Das grosse Fenster nur gelegentlich pruefen, das nahe bei jedem Lauf.
+    var fernFaellig = nurVorschau || fernLaufFaellig(beginn, eigenschaften);
+    var fenster = syncFenster(fernFaellig);
+
+    if (!fenster) {
+      // Das Enddatum liegt hinter uns – es gibt nichts mehr zu uebertragen.
+      var weg = raeumeHinterEnddatumAuf(k.kalenderId, nurVorschau);
+      if (weg) Logger.log(weg + ' Termine hinter dem Enddatum entfernt.');
       return;
     }
+
+    var sitzung = anmelden(k);
+    var stunden = holeStunden(k, sitzung, fenster.start, fenster.ende);
 
     var geplant = {};
     stunden.forEach(function (s) {
@@ -167,7 +194,9 @@ function ausfuehren(nurVorschau) {
     var vorhanden = holeVerwaltete(k.kalenderId, fenster.start, fenster.ende, false);
     var geloescht = holeGeloeschte(k.kalenderId, fenster.start, fenster.ende);
 
-    var angelegt = 0, aktualisiert = 0, unveraendert = 0, entfernt = 0, uebersprungen = 0;
+    var angelegt = 0, aktualisiert = 0, unveraendert = 0, entfernt = 0;
+    var uebersprungen = 0, offen = 0;
+    var budget = EINSTELLUNGEN.maxSchreibvorgaengeProLauf;
 
     Object.keys(geplant).forEach(function (id) {
       if (geloescht[id]) { uebersprungen++; return; }
@@ -175,14 +204,17 @@ function ausfuehren(nurVorschau) {
       var alt = vorhanden[id];
       var neuerHash = neu.extendedProperties.private.contentHash;
 
+      if (alt && hashVon(alt) === neuerHash) { unveraendert++; return; }
+
+      if (budget <= 0) { offen++; return; }
+      budget--;
+
       if (!alt) {
         if (!nurVorschau) einfuegen(k.kalenderId, neu);
         angelegt++;
-      } else if (hashVon(alt) !== neuerHash) {
+      } else {
         if (!nurVorschau) Calendar.Events.update(neu, k.kalenderId, id);
         aktualisiert++;
-      } else {
-        unveraendert++;
       }
     });
 
@@ -192,30 +224,60 @@ function ausfuehren(nurVorschau) {
         Logger.log('Termin ' + id + ' wird NICHT entfernt – ohne Markierung.');
         return;
       }
+      if (budget <= 0) { offen++; return; }
+      budget--;
       if (!nurVorschau) Calendar.Events.remove(k.kalenderId, id);
       entfernt++;
     });
 
+    // Beim grossen Durchgang zusaetzlich hinter dem Enddatum aufraeumen.
+    if (fernFaellig) {
+      entfernt += raeumeHinterEnddatumAuf(k.kalenderId, nurVorschau);
+    }
+
     var dauer = ((new Date()) - beginn) / 1000;
     var text = (nurVorschau ? 'PROBELAUF – ' : '') +
+               (fernFaellig ? 'ganzes Fenster' : 'naechste ' + EINSTELLUNGEN.nahTage + ' Tage') +
+               ' bis ' + datumIso(fenster.ende) + ': ' +
                angelegt + ' angelegt, ' + aktualisiert + ' aktualisiert, ' +
                entfernt + ' geloescht, ' + unveraendert + ' unveraendert' +
                (uebersprungen ? ', ' + uebersprungen + ' bleiben geloescht' : '') +
+               (offen ? ', ' + offen + ' auf den naechsten Lauf verschoben' : '') +
                ' (' + dauer.toFixed(1) + ' s)';
 
     // Nur protokollieren, wenn sich etwas getan hat – sonst laeuft das Protokoll voll.
-    if (nurVorschau || angelegt || aktualisiert || entfernt) {
+    if (nurVorschau || angelegt || aktualisiert || entfernt || offen) {
       Logger.log(text);
       console.log(text);
     }
 
     if (!nurVorschau) {
-      PropertiesService.getScriptProperties()
-        .setProperty('letzterLauf', String(beginn.getTime()));
+      eigenschaften.setProperty('letzterLauf', String(beginn.getTime()));
+      // Der grosse Durchgang gilt erst als erledigt, wenn nichts offen blieb.
+      if (fernFaellig && !offen) {
+        eigenschaften.setProperty('letzterFernLauf', String(beginn.getTime()));
+      }
     }
   } finally {
     sperre.releaseLock();
   }
+}
+
+/** Entfernt verwaltete Termine, die hinter dem Enddatum liegen. */
+function raeumeHinterEnddatumAuf(kalenderId, nurVorschau) {
+  var ab = new Date(endDatumAlsDatum().getTime());
+  ab.setDate(ab.getDate() + 1);
+  var bis = new Date(ab.getTime());
+  bis.setDate(bis.getDate() + 400);
+
+  var verwaiste = holeVerwaltete(kalenderId, ab, bis, false);
+  var anzahl = 0;
+  Object.keys(verwaiste).forEach(function (id) {
+    if (!istUnser(verwaiste[id])) return;
+    if (!nurVorschau) Calendar.Events.remove(kalenderId, id);
+    anzahl++;
+  });
+  return anzahl;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,11 +301,39 @@ function konfiguration() {
   };
 }
 
-function syncFenster() {
+/** Das Enddatum aus den Einstellungen als Date-Objekt. */
+function endDatumAlsDatum() {
+  var teile = EINSTELLUNGEN.endDatum.split('-');
+  return new Date(Number(teile[0]), Number(teile[1]) - 1, Number(teile[2]));
+}
+
+/**
+ * Liefert das Abfragefenster, oder null, wenn das Enddatum bereits vorbei ist.
+ * Beim grossen Durchgang reicht es bis zum Enddatum, sonst nur nahTage weit.
+ */
+function syncFenster(ganzesFenster) {
   var heute = new Date();
-  var ende = new Date(heute.getTime());
-  ende.setDate(ende.getDate() + EINSTELLUNGEN.vorlaufTage);
+  var schluss = endDatumAlsDatum();
+
+  // Auf Tagesgrenzen normieren, damit der Vergleich nicht an der Uhrzeit haengt.
+  var heuteTag = new Date(heute.getFullYear(), heute.getMonth(), heute.getDate());
+  if (schluss < heuteTag) return null;
+
+  var ende = schluss;
+  if (!ganzesFenster) {
+    var nah = new Date(heuteTag.getTime());
+    nah.setDate(nah.getDate() + EINSTELLUNGEN.nahTage);
+    ende = (nah < schluss) ? nah : schluss;
+  }
   return { start: heute, ende: ende };
+}
+
+/** Ist der grosse Durchgang ueber das ganze Fenster wieder faellig? */
+function fernLaufFaellig(jetzt, eigenschaften) {
+  var letzter = eigenschaften.getProperty('letzterFernLauf');
+  if (!letzter) return true;
+  return (jetzt.getTime() - Number(letzter)) >=
+         EINSTELLUNGEN.fernIntervallMinuten * 60 * 1000;
 }
 
 function istSchulzeit(jetzt) {
@@ -499,7 +589,10 @@ function beschreibung(s) {
   }
   if (s.klassen.length) kopf.push('Klasse: ' + s.klassen.join(', '));
   if (s.infos.length) kopf.push('Info: ' + s.infos.join(', '));
-  if (s.unterrichtsnotiz && s.infos.indexOf(s.unterrichtsnotiz) === -1) {
+  // Bei Klausuren steht in lessonInfo "Klausur PH/711"; das wiederholt nur die
+  // Klausurzeile weiter unten und wird deshalb weggelassen.
+  if (s.unterrichtsnotiz && s.infos.indexOf(s.unterrichtsnotiz) === -1 &&
+      s.unterrichtsnotiz.toLowerCase().indexOf('klausur') !== 0) {
     kopf.push('Kurs: ' + s.unterrichtsnotiz);
   }
   if (s.status === 'CANCELLED') kopf.unshift('Diese Stunde fällt aus.');

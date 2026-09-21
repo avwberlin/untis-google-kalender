@@ -28,8 +28,14 @@ from kalender import Kalender, KalenderFehler, MARKIERUNG
 from modelle import Status, Stunde, ZEITZONE
 from untis import RestQuelle, UntisFehler
 
-# Sync-Fenster: heute bis heute plus 28 Tage
-VORLAUF_TAGE = 28
+# Sync-Fenster: ab heute bis zu diesem Tag (einschliesslich). Danach werden
+# keine Termine mehr angelegt, und bereits angelegte werden wieder entfernt.
+# Ueber die Umgebungsvariable SYNC_END_DATUM aenderbar (Format JJJJ-MM-TT).
+END_DATUM = dt.date.fromisoformat(os.environ.get("SYNC_END_DATUM", "2027-03-16"))
+
+# Wie weit hinter dem Enddatum noch nach verwaisten Terminen gesucht wird,
+# damit frueher angelegte Termine sicher verschwinden.
+AUFRAEUM_TAGE = 400
 
 # Kurze Pause zwischen Schreibvorgaengen. Google begrenzt die Schreibrate je
 # Kalender; ohne Pause laeuft der erste Lauf mit rund 100 neuen Terminen dagegen.
@@ -120,8 +126,13 @@ def main() -> int:
 
     heute = dt.datetime.now(ZEITZONE).date()
     fenster_start = heute
-    fenster_ende = heute + dt.timedelta(days=VORLAUF_TAGE)
-    log.info("Sync-Fenster: %s bis %s", fenster_start, fenster_ende)
+    fenster_ende = END_DATUM
+    if fenster_ende < fenster_start:
+        log.info("Das Enddatum %s liegt in der Vergangenheit – es werden nur noch "
+                 "verwaiste Termine aufgeraeumt.", END_DATUM)
+    else:
+        log.info("Sync-Fenster: %s bis %s (%d Tage)", fenster_start, fenster_ende,
+                 (fenster_ende - fenster_start).days)
 
     # --- Google-Kalender vorbereiten ---------------------------------
     try:
@@ -220,8 +231,11 @@ def vorschau(kalender: Kalender, stunden: list[Stunde],
     if uebersprungen:
         log.info("%d Termine bleiben gelöscht, weil du sie im Kalender entfernt hast.",
                  uebersprungen)
-    for event_id in loeschen:
+    for event_id in loeschen[:10]:
         log.info("  würde löschen: %s", vorhanden[event_id].get("summary", event_id))
+    if len(loeschen) > 10:
+        log.info("  … und %d weitere", len(loeschen) - 10)
+    raeume_hinter_enddatum_auf(kalender, nur_vorschau=True)
     return 0
 
 
@@ -271,11 +285,38 @@ def schreibe(kalender: Kalender, stunden: list[Stunde],
         log.error("%s", fehler)
         return 1
 
+    try:
+        geloescht += raeume_hinter_enddatum_auf(kalender)
+    except KalenderFehler as fehler:
+        log.error("%s", fehler)
+        return 1
+
     log.info("Fertig: %d angelegt, %d aktualisiert, %d gelöscht, %d unverändert",
              angelegt, aktualisiert, geloescht, unveraendert)
     if uebersprungen:
         log.info("%d Termine blieben gelöscht, weil du sie selbst entfernt hast.", uebersprungen)
     return 0
+
+
+def raeume_hinter_enddatum_auf(kalender: Kalender, nur_vorschau: bool = False) -> int:
+    """Entfernt verwaltete Termine, die hinter dem Enddatum liegen.
+
+    Wird gebraucht, wenn das Enddatum nachtraeglich vorgezogen wird oder wenn
+    frueher mit einem weiteren Fenster gearbeitet wurde.
+    """
+    ab = END_DATUM + dt.timedelta(days=1)
+    bis = END_DATUM + dt.timedelta(days=AUFRAEUM_TAGE)
+    verwaiste = kalender.hole_verwaltete(ab, bis)
+    if not verwaiste:
+        return 0
+    if nur_vorschau:
+        log.info("Wuerde %d Termine hinter dem Enddatum %s entfernen.",
+                 len(verwaiste), END_DATUM)
+        return len(verwaiste)
+    entfernt = sum(1 for event_id in list(verwaiste)
+                   if kalender.loeschen(event_id, verwaiste))
+    log.info("%d Termine hinter dem Enddatum %s entfernt.", entfernt, END_DATUM)
+    return entfernt
 
 
 def purge(kalender: Kalender, start: dt.date, ende: dt.date) -> int:

@@ -15,7 +15,7 @@ kein Rechner eingeschaltet sein.
 | Vertretung, Raumwechsel | orange Farbe, Details in der Beschreibung: `Raum: B105 (statt: A203)` |
 | Klausuren und Prüfungen | rote Farbe, Details in der Beschreibung |
 | Vertretungstexte, Klassenbuchtexte, Notizen | in der Beschreibung |
-| Ferien und unterrichtsfreie Tage | es werden schlicht keine Termine angelegt |
+| Ferien und unterrichtsfreie Tage | es werden schlicht keine Termine angelegt – im Kalender bleibt der Platz frei |
 
 **Ausnahme: Hausaufgaben kommen derzeit nicht mit.** Der zuständige WebUntis-Endpunkt
 `/WebUntis/api/homeworks/lessons` antwortet bei dieser Schule ausnahmslos mit HTTP 500 —
@@ -52,6 +52,22 @@ im Google-Kalender-Papierkorb wiederherstellst.
 Das bleibt ebenfalls bestehen. Der Sync vergleicht nur die Untis-Daten; solange sich
 dort nichts ändert, fasst er den Termin nicht an. Ändert Untis aber etwas an der Stunde,
 wird der Termin überschrieben und deine Änderung geht verloren.
+
+## Zeitraum
+
+Übertragen wird **ab heute bis zum 16.03.2027** (einschliesslich). Dahinter legt der
+Sync nichts an, und bereits angelegte Termine entfernt er wieder.
+
+Änderungen werden im **gesamten** Zeitraum erkannt, nicht nur in den nächsten Tagen.
+Trägt ein Lehrer im Januar einen Raumwechsel ein, landet der beim nächsten Durchgang
+im Kalender.
+
+Enddatum ändern: in [sync.py](sync.py) die Zeile `END_DATUM = …` anpassen, oder ohne
+Codeänderung die Umgebungsvariable `SYNC_END_DATUM` setzen (Format `JJJJ-MM-TT`).
+In der Apps-Script-Fassung steht es oben in `EINSTELLUNGEN` unter `endDatum`.
+
+**Ferien:** WebUntis liefert an Ferientagen schlicht keine Stunden, deshalb bleiben
+diese Tage im Kalender leer. Es werden auch keine Ganztagstermine für Ferien angelegt.
 
 ## Ausgefallene Stunden werden nicht gelöscht
 

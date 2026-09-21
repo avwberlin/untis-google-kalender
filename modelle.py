@@ -180,7 +180,10 @@ class Stunde:
             kopf.append(f"Info: {', '.join(self.infos)}")
         # lessonInfo ist an dieser Schule die Kursbezeichnung (z. B. "q3L1"),
         # keine Lehrernotiz – daher eigene Zeile statt unter "Notiz".
-        if self.unterrichtsnotiz and self.unterrichtsnotiz not in self.infos:
+        # Bei Klausuren steht dort "Klausur PH/711"; das wiederholt nur die
+        # Klausurzeile weiter unten und wird deshalb weggelassen.
+        if (self.unterrichtsnotiz and self.unterrichtsnotiz not in self.infos
+                and not self.unterrichtsnotiz.lower().startswith("klausur")):
             kopf.append(f"Kurs: {self.unterrichtsnotiz}")
         if self.status is Status.AUSGEFALLEN:
             kopf.insert(0, "Diese Stunde fällt aus.")
