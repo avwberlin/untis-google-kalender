@@ -41,6 +41,12 @@ AUFRAEUM_TAGE = 400
 # Kalender; ohne Pause laeuft der erste Lauf mit rund 100 neuen Terminen dagegen.
 SCHREIBPAUSE = 0.15
 
+# Schutz vor Datenverlust: Liefert WebUntis deutlich weniger Stunden als im
+# Kalender stehen, ist das fast immer eine Stoerung und keine echte
+# Planaenderung. Unterhalb dieses Anteils wird nichts geloescht.
+MINDEST_ANTEIL_FUER_LOESCHEN = 0.7
+LOESCHSCHUTZ_AB_ANZAHL = 5
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-7s %(name)-9s %(message)s",
@@ -275,11 +281,16 @@ def schreibe(kalender: Kalender, stunden: list[Stunde],
                 # Inhalt identisch – kein API-Aufruf
                 unveraendert += 1
 
-        # Termine, die es in Untis nicht mehr gibt, entfernen
-        for event_id in [e for e in vorhanden if e not in geplant]:
-            if kalender.loeschen(event_id, vorhanden):
-                log.info("Gelöscht: %s", vorhanden[event_id].get("summary", event_id))
-                geloescht += 1
+        # Termine, die es in Untis nicht mehr gibt, entfernen – aber nur, wenn
+        # die Untis-Antwort plausibel aussieht. Siehe loeschen_erlaubt().
+        erlaubt, grund = loeschen_erlaubt(len(geplant), len(vorhanden))
+        if not erlaubt:
+            log.error("LÖSCHSCHUTZ: %s – es wird nichts entfernt, nur ergänzt.", grund)
+        else:
+            for event_id in [e for e in vorhanden if e not in geplant]:
+                if kalender.loeschen(event_id, vorhanden):
+                    log.info("Gelöscht: %s", vorhanden[event_id].get("summary", event_id))
+                    geloescht += 1
 
     except KalenderFehler as fehler:
         log.error("%s", fehler)
@@ -296,6 +307,28 @@ def schreibe(kalender: Kalender, stunden: list[Stunde],
     if uebersprungen:
         log.info("%d Termine blieben gelöscht, weil du sie selbst entfernt hast.", uebersprungen)
     return 0
+
+
+def loeschen_erlaubt(anzahl_geplant: int, anzahl_vorhanden: int) -> tuple[bool, str]:
+    """Darf überhaupt gelöscht werden?
+
+    Liefert WebUntis einmal eine leere oder unvollständige Antwort, sieht das
+    für den Abgleich aus wie "diese Stunden gibt es nicht mehr". Ohne diese
+    Bremse löscht der Sync dann ganze Schultage. Genau das ist einmal passiert
+    und hat zwölf Schultage gekostet.
+    """
+    if anzahl_vorhanden == 0:
+        return True, ""
+    if anzahl_geplant == 0:
+        return False, (f"WebUntis lieferte keine einzige Stunde, im Kalender "
+                       f"stehen {anzahl_vorhanden}.")
+    if anzahl_vorhanden >= LOESCHSCHUTZ_AB_ANZAHL:
+        anteil = anzahl_geplant / anzahl_vorhanden
+        if anteil < MINDEST_ANTEIL_FUER_LOESCHEN:
+            return False, (f"WebUntis lieferte nur {anzahl_geplant} Stunden, im "
+                           f"Kalender stehen {anzahl_vorhanden} "
+                           f"({anteil:.0%}).")
+    return True, ""
 
 
 def raeume_hinter_enddatum_auf(kalender: Kalender, nur_vorschau: bool = False) -> int:

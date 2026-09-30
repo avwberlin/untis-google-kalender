@@ -88,7 +88,12 @@ Dort sind sie nur für dich sichtbar.
 ## Schritt 7: Automatik einschalten
 
 21. Funktion **`ausloeserEinrichten`** auswählen, **„Ausführen"**.
-22. Im Protokoll: `Ausloeser angelegt: sync() laeuft alle 1 Minute(n).`
+22. Im Protokoll: `Ausloeser angelegt: sync() laeuft alle 1 Minute(n), waechter()
+    einmal taeglich gegen 20 Uhr.`
+
+    Es werden **zwei** Auslöser angelegt: der eigentliche Sync im Minutentakt und
+    der Wächter, der abends prüft, ob Stunden fehlen, und notfalls eine Mail
+    schickt.
 
 Ab jetzt läuft der Sync von allein.
 
@@ -112,6 +117,8 @@ Dasselbe für den Keepalive-Workflow (der wird dann auch nicht mehr gebraucht).
 | Sehen, was passieren würde | Funktion `probelauf` |
 | Alles zurücksetzen | Funktion `alleEntfernen` (löscht nur die vom Skript angelegten Termine) |
 | Automatik ausschalten | Funktion `ausloeserEntfernen` |
+| Prüfen, ob Stunden fehlen | Funktion `waechter` |
+| Fehlende Stunden zurückholen | Funktion `reparieren` |
 
 ## Takt und Zeiten ändern
 
@@ -170,6 +177,32 @@ auf `300` setzen — dann sind es etwa 20 Minuten pro Tag.
 | `Not Found` beim Kalender | `GCAL_ID` falsch. Google Kalender → Einstellungen → `Schule` → „Kalender integrieren" → Kalender-ID |
 | `Service invoked too many times` | Kontingent erschöpft — `ausloeserMinuten` auf 5 setzen |
 | Termine doppelt | Sofort `ausloeserEntfernen` ausführen und Bescheid sagen |
+
+## Schutz vor Datenverlust
+
+Es gab einen Vorfall, bei dem WebUntis kurzzeitig eine leere Antwort lieferte.
+Der Sync schloss daraus, die Stunden gebe es nicht mehr, und löschte zwölf
+Schultage. Googles Löschvermerke machten das dauerhaft. Dagegen gibt es jetzt
+drei Sicherungen:
+
+**1. Löschschutz.** Liefert WebUntis weniger als 70 Prozent der Stunden, die im
+Kalender stehen, wird **nichts** gelöscht — es wird nur noch ergänzt. Eine
+Störung kann so keinen Schultag mehr kosten. Einstellbar über
+`mindestAnteilFuerLoeschen`.
+
+**2. Eigene Löschungen werden nicht dauerhaft.** Der Sync merkt sich, welche
+Termine er selbst entfernt hat. Taucht so eine Stunde in WebUntis wieder auf,
+wird sie neu angelegt. Nur Termine, die **du** von Hand löschst, bleiben
+gelöscht — das war ja der eigentliche Zweck dieser Funktion.
+
+**3. Wächter mit Warnmail.** Einmal täglich gegen 20 Uhr vergleicht
+`waechter()` WebUntis mit dem Kalender. Fehlt an einem Schultag der nächsten
+zwei Wochen etwas, kommt eine E-Mail. So merkt man es abends vorher statt
+morgens zu spät.
+
+Sollte doch einmal etwas fehlen: Funktion **`reparieren`** ausführen. Sie hebt
+alle Löschsperren auf und legt jede Stunde neu an, die WebUntis kennt. Achtung:
+Damit kommen auch Termine zurück, die du absichtlich gelöscht hattest.
 
 ## Was diese Fassung nicht kann
 

@@ -215,6 +215,14 @@ lassen, um zu sehen, was sich geändert hat.
   `0 angelegt, 0 aktualisiert, 0 gelöscht`.
 * **Von Hand gelöschte Termine** werden über die Grabsteine (`status = "cancelled"`)
   erkannt und nicht wieder angelegt.
+* **Löschschutz.** Liefert WebUntis weniger als 70 Prozent der Stunden, die im
+  Kalender stehen, wird nichts gelöscht. Eine leere oder unvollständige Antwort
+  hatte einmal zwölf Schultage gekostet; das kann so nicht mehr passieren.
+* **Eigene Löschungen werden nicht dauerhaft.** Der Sync merkt sich, was er
+  selbst entfernt hat (nur Apps-Script-Fassung). Nur Löschungen durch den
+  Nutzer bleiben bestehen.
+* **Wächter.** Die Apps-Script-Fassung prüft täglich, ob Stunden fehlen, und
+  schickt bei Bedarf eine Warnmail.
 * **Schutz fremder Termine.** Angefasst werden nur Termine mit
   `extendedProperties.private.managedBy = "untis-sync"`. Vor jedem Löschen wird das
   ein zweites Mal geprüft.

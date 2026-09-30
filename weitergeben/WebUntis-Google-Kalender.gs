@@ -1,13 +1,210 @@
 /**
- * WebUntis -> Google Kalender, Fassung fuer Google Apps Script.
+ * ============================================================================
+ *  WebUntis  ->  Google Kalender
+ * ============================================================================
  *
- * Laeuft auf Googles Servern, rund um die Uhr, ohne dass ein Rechner an sein muss.
+ *  Traegt den Stundenplan aus WebUntis automatisch in einen Google-Kalender ein.
+ *  Laeuft auf Googles Servern, rund um die Uhr, alle zwei Minuten. Es muss kein
+ *  Rechner eingeschaltet sein.
  *
- * Wichtig: Die Termin-Kennungen und der Inhalts-Hash sind identisch zur
- * Python-Fassung. Dadurch uebernimmt dieses Skript vorhandene Termine, statt
- * sie doppelt anzulegen.
+ *  Was uebertragen wird:
+ *    - Fach, Lehrer, Raum im Titel:  "Mathe · Schmidt · A203"
+ *    - Raum zusaetzlich im Feld "Ort"
+ *    - Stundenausfall:   Titel "FAELLT AUS: ...", grau, blockiert die
+ *                        Verfuegbarkeit nicht
+ *    - Vertretung und Raumwechsel: orange, Details in der Beschreibung
+ *                        ("Raum: B105 (statt: A203)")
+ *    - Klausuren und Pruefungen: rot
+ *    - Vertretungstexte, Klassenbuchtexte und Lehrernotizen
+ *    - Ferien: es werden einfach keine Termine angelegt, der Tag bleibt leer
  *
- * Einrichtung: siehe ANLEITUNG.md
+ *  Was NICHT geht:
+ *    - Hausaufgaben. Der zustaendige Endpunkt /WebUntis/api/homeworks/lessons
+ *      antwortet bei manchen Schulen dauerhaft mit HTTP 500. Das Modul ist
+ *      vorhanden, aber ueber HAUSAUFGABEN_AKTIV abgeschaltet. Wer Glueck hat,
+ *      kann den Schalter auf true stellen und es probieren.
+ *
+ *  Sicherheit:
+ *    - Zugangsdaten stehen NICHT im Code, sondern in den Skripteigenschaften.
+ *    - Angefasst werden nur Termine mit der Markierung managedBy=untis-sync.
+ *      Eigene Termine im selben Kalender bleiben unberuehrt.
+ *    - Von Hand geloeschte Termine werden nicht wieder angelegt.
+ *
+ *  Schutz vor Datenverlust (wichtig, aus einem echten Vorfall gelernt):
+ *    - LOESCHSCHUTZ: Liefert WebUntis weniger als 70 Prozent der Stunden, die
+ *      im Kalender stehen, wird NICHTS geloescht, sondern nur ergaenzt. Eine
+ *      kurze Stoerung bei WebUntis kann so keinen Schultag mehr kosten.
+ *    - Der Sync merkt sich, welche Termine er SELBST geloescht hat. Taucht so
+ *      eine Stunde spaeter wieder auf, wird sie neu angelegt. Nur Loeschungen
+ *      durch den Nutzer bleiben dauerhaft.
+ *    - WAECHTER: prueft einmal taeglich, ob an einem Schultag der naechsten
+ *      zwei Wochen Stunden fehlen, und schickt dann eine E-Mail.
+ *    - Falls doch etwas fehlt: Funktion "reparieren" ausfuehren.
+ *
+ * ----------------------------------------------------------------------------
+ *  EINRICHTUNG  (etwa 15 Minuten, alles im Browser)
+ *
+ *  Die Beschriftungen unten sind die englischen aus der Google-Oberflaeche.
+ * ----------------------------------------------------------------------------
+ *
+ *  SCHRITT 1 - Eigenen Kalender anlegen
+ *    Nicht in den Hauptkalender schreiben lassen, sondern einen eigenen nehmen.
+ *    a) https://calendar.google.com/calendar/u/0/r/settings/createcalendar
+ *    b) Name z. B. "Schule", Zeitzone auf die eigene stellen, "Create calendar"
+ *    c) Links in der Seitenleiste den neuen Kalender anklicken, runterscrollen
+ *       zu "Integrate calendar" und die "Calendar ID" kopieren.
+ *       Sie sieht so aus:  abc123...@group.calendar.google.com
+ *
+ *  SCHRITT 2 - Apps-Script-Projekt anlegen
+ *    a) https://script.google.com/home/projects/create
+ *    b) Oben links "Untitled project" anklicken und umbenennen,
+ *       z. B. "Stundenplan-Sync"
+ *    c) Im Editor den vorhandenen Beispielcode komplett markieren (Cmd+A bzw.
+ *       Strg+A), loeschen, und DIESE Datei vollstaendig einfuegen. Speichern.
+ *
+ *  SCHRITT 3 - Kalender-Dienst aktivieren
+ *    a) Links in der Seitenleiste bei "Services" auf das "+"
+ *    b) "Google Calendar API" auswaehlen, dann "Add"
+ *    c) Danach muss links unter "Services" der Eintrag "Calendar" stehen.
+ *
+ *    Falls das "+" nicht reagiert, geht es auch ueber die Manifest-Datei:
+ *      - Zahnrad "Project Settings" -> Haken bei
+ *        "Show appsscript.json manifest file in editor"
+ *      - Zurueck zum Editor, Datei "appsscript.json" oeffnen, Inhalt ersetzen
+ *        durch den Block ganz unten in dieser Datei, speichern.
+ *
+ *  SCHRITT 4 - Zugangsdaten hinterlegen
+ *    Zahnrad "Project Settings" -> runterscrollen zu "Script Properties" ->
+ *    "Add script property". Diese fuenf Eintraege anlegen:
+ *
+ *      UNTIS_SERVER    Der Hostname aus der Browser-Adresszeile, wenn man in
+ *                      WebUntis eingeloggt ist. Beispiel: nessa.webuntis.com
+ *                      (nur der Teil zwischen https:// und /WebUntis)
+ *
+ *      UNTIS_SCHOOL    Der technische Schulname, NICHT der Anzeigename.
+ *                      Steht in der URL hinter "?school=".
+ *                      Zeigt die neue Oberflaeche ihn nicht an, einfach die
+ *                      Funktion schuleSuchen() weiter unten benutzen.
+ *
+ *      UNTIS_USER      Der WebUntis-Benutzername
+ *
+ *      UNTIS_PASSWORD  Das WebUntis-Passwort
+ *
+ *      GCAL_ID         Die Kalender-ID aus Schritt 1
+ *
+ *    Danach unten auf "Save script properties".
+ *
+ *  SCHRITT 5 - Enddatum festlegen
+ *    Weiter unten im Block EINSTELLUNGEN steht "endDatum". Bis zu diesem Tag
+ *    werden Termine uebertragen, danach nicht mehr. Sinnvoll ist das Ende des
+ *    Schulhalbjahres oder Schuljahres. Format: 'JJJJ-MM-TT'.
+ *
+ *  SCHRITT 6 - Pruefen
+ *    a) Oben im Auswahlfeld neben "Run" die Funktion "einrichtungPruefen"
+ *       waehlen, dann "Run".
+ *    b) Google fragt nach Berechtigungen:
+ *         "Review permissions" -> eigenes Konto -> es erscheint
+ *         "Google hasn't verified this app" -> "Advanced" ->
+ *         "Go to <Projektname> (unsafe)" -> alle Haken setzen ("Select all")
+ *         -> "Continue"
+ *       Das "unsafe" bedeutet nur, dass Google dieses private Skript nicht
+ *       geprueft hat. Es ist der eigene Code.
+ *    c) Unten im "Execution log" muss stehen:
+ *         WebUntis-Anmeldung: OK, personId ...
+ *         Kalender: "..." (...)
+ *         Stundenplan: ... Stunden im Fenster ...
+ *         Schreibrecht im Kalender: OK
+ *         Einrichtung vollstaendig in Ordnung.
+ *
+ *  SCHRITT 7 - Probelauf
+ *    Funktion "probelauf" waehlen, "Run". Es wird nichts geschrieben, man sieht
+ *    nur, was passieren wuerde. Bei einem leeren Kalender steht dort die volle
+ *    Anzahl unter "angelegt" - das ist richtig so.
+ *
+ *  SCHRITT 8 - Automatik einschalten
+ *    Funktion "ausloeserEinrichten" waehlen, "Run".
+ *    Ab jetzt laeuft es von allein.
+ *
+ * ----------------------------------------------------------------------------
+ *  BEDIENUNG IM ALLTAG
+ *
+ *    sync                  einmal sofort synchronisieren
+ *    probelauf             anzeigen, was passieren wuerde, ohne zu schreiben
+ *    einrichtungPruefen    Zugangsdaten, Anmeldung und Schreibrecht testen
+ *    schuleSuchen          den technischen Schulnamen herausfinden
+ *    ausloeserEinrichten   Automatik einschalten
+ *    ausloeserEntfernen    Automatik ausschalten
+ *    waechter              prueft, ob Stunden fehlen, und warnt per Mail
+ *    reparieren            holt fehlende Stunden zurueck (Notfall)
+ *    alleEntfernen         Notausstieg: alle vom Skript angelegten Termine weg
+ *
+ *  Laufprotokolle: links in der schmalen Leiste auf "Executions".
+ *
+ * ----------------------------------------------------------------------------
+ *  GOOGLE-KONTINGENT
+ *
+ *  Kostenlose Google-Konten duerfen Skripte insgesamt 90 Minuten pro Tag ueber
+ *  Zeitausloeser laufen lassen. Diese Einstellung (rund um die Uhr, alle zwei
+ *  Minuten) verbraucht erfahrungsgemaess etwa 35 bis 40 Minuten pro Tag.
+ *
+ *  Falls doch eine Kontingentmeldung kommt: unten "mindestAbstandSekunden" von
+ *  120 auf 300 stellen. Dann sind es noch etwa 15 Minuten pro Tag.
+ *
+ * ----------------------------------------------------------------------------
+ *  WENN ETWAS NICHT KLAPPT
+ *
+ *    "Diese Skript-Eigenschaften fehlen: ..."
+ *        Schritt 4 unvollstaendig. Die Namen muessen exakt stimmen,
+ *        Grossschreibung inklusive.
+ *
+ *    "WebUntis-Anmeldung abgelehnt"
+ *        Benutzername, Passwort oder Schulname falsch. Schulnamen mit
+ *        schuleSuchen() pruefen.
+ *
+ *    "Calendar is not defined"
+ *        Schritt 3 fehlt - die Google Calendar API ist nicht als Dienst
+ *        hinzugefuegt.
+ *
+ *    "Not Found" beim Kalender
+ *        GCAL_ID stimmt nicht. Es muss die lange Adresse auf
+ *        @group.calendar.google.com sein, nicht der Anzeigename.
+ *
+ *    "startDate and endDate are not within a single school year"
+ *        Das Enddatum liegt im naechsten Schuljahr. WebUntis erlaubt keine
+ *        Abfrage ueber eine Schuljahresgrenze hinweg. Enddatum vorziehen.
+ *
+ *    Termine doppelt
+ *        Sofort "ausloeserEntfernen" ausfuehren, dann "alleEntfernen",
+ *        danach neu starten.
+ *
+ * ----------------------------------------------------------------------------
+ *  INHALT DER DATEI appsscript.json  (nur noetig, wenn Schritt 3 ueber das
+ *  Manifest gemacht wird)
+ *
+ *  {
+ *    "timeZone": "Europe/Berlin",
+ *    "runtimeVersion": "V8",
+ *    "exceptionLogging": "STACKDRIVER",
+ *    "dependencies": {
+ *      "enabledAdvancedServices": [
+ *        { "userSymbol": "Calendar", "serviceId": "calendar", "version": "v3" }
+ *      ]
+ *    },
+ *    "oauthScopes": [
+ *      "https://www.googleapis.com/auth/calendar",
+ *      "https://www.googleapis.com/auth/script.external_request",
+ *      "https://www.googleapis.com/auth/script.scriptapp"
+ *    ]
+ *  }
+ *
+ * ----------------------------------------------------------------------------
+ *  HINWEIS ZUR SCHNITTSTELLE
+ *
+ *  WebUntis hat keine oeffentliche, dokumentierte Schnittstelle fuer Schueler.
+ *  Dieses Skript benutzt dieselbe interne Schnittstelle wie die WebUntis-
+ *  Weboberflaeche. Die kann sich ohne Ankuendigung aendern. Typisches Zeichen
+ *  dafuer: ploetzlich HTTP 403 oder 404 im Protokoll.
+ * ============================================================================
  */
 
 // ---------------------------------------------------------------------------
@@ -1070,4 +1267,37 @@ function naechsterTag(tagText) {
   var d = new Date(Number(teile[0]), Number(teile[1]) - 1, Number(teile[2]));
   d.setDate(d.getDate() + 1);
   return Utilities.formatDate(d, EINSTELLUNGEN.zeitzone, 'yyyy-MM-dd');
+}
+/**
+ * Findet den technischen Schulnamen (den Wert fuer UNTIS_SCHOOL).
+ *
+ * Den Suchbegriff unten eintragen, Funktion auswaehlen und "Run" druecken.
+ * Im Execution log erscheinen Anzeigename, technischer Name und Server.
+ */
+function schuleSuchen() {
+  var suchbegriff = 'Name oder Ort der Schule hier eintragen';
+
+  var antwort = UrlFetchApp.fetch('https://mobile.webuntis.com/ms/schoolquery2', {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({
+      id: 'suche', method: 'searchSchool',
+      params: [{ search: suchbegriff }], jsonrpc: '2.0'
+    }),
+    muteHttpExceptions: true
+  });
+
+  var schulen = ((JSON.parse(antwort.getContentText()).result) || {}).schools || [];
+  if (!schulen.length) {
+    Logger.log('Kein Treffer fuer "' + suchbegriff + '". Anderen Begriff probieren, ' +
+               'zum Beispiel nur den Ort oder einen Teil des Schulnamens.');
+    return;
+  }
+  schulen.forEach(function (s) {
+    Logger.log('Anzeigename : ' + s.displayName);
+    Logger.log('UNTIS_SCHOOL: ' + s.loginName);
+    Logger.log('UNTIS_SERVER: ' + s.server);
+    Logger.log('Adresse     : ' + s.address);
+    Logger.log('---');
+  });
 }
