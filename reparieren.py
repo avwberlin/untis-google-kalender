@@ -1,4 +1,15 @@
-"""Stellt faelschlich unterdrueckte Termine wieder her."""
+"""
+Notfallwerkzeug fuer die Python-Fassung: stellt Termine wieder her, die im
+Google-Kalender als geloescht markiert sind, obwohl WebUntis sie kennt.
+
+Gebraucht wird das, wenn der Sync einmal faelschlich Stunden geloescht hat –
+Googles Grabsteine wuerden die Neuanlage sonst dauerhaft verhindern.
+
+Bricht ab, wenn WebUntis unplausibel wenige Stunden liefert, damit die
+Reparatur nicht auf einer Stoerung aufsetzt.
+
+Aufruf:  .venv/bin/python reparieren.py
+"""
 import datetime as dt, os, collections, time
 from dotenv import load_dotenv
 from untis import RestQuelle
