@@ -193,7 +193,8 @@
  *    "oauthScopes": [
  *      "https://www.googleapis.com/auth/calendar",
  *      "https://www.googleapis.com/auth/script.external_request",
- *      "https://www.googleapis.com/auth/script.scriptapp"
+ *      "https://www.googleapis.com/auth/script.scriptapp",
+ *      "https://www.googleapis.com/auth/script.send_mail"
  *    ]
  *  }
  *
